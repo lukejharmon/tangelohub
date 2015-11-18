@@ -40,12 +40,12 @@
     apt: pkg=mongodb-org state=present update_cache=yes
     sudo: yes
 
-  - name: install pycurl package in order to use the apt_repository module
-    apt: pkg=python-pycurl state=present
+  - name: install curl so we can install nodejs
+    apt: pkg=curl state=present
     sudo: yes
 
   - name: add nodejs ppa
-    apt_repository: repo='ppa:chris-lea/node.js'
+    shell: curl -sL https://deb.nodesource.com/setup | sudo bash -
     sudo: yes
 
   - name: update apt cache
@@ -82,6 +82,7 @@
       - pep8
       - virtualenv
       - girder
+      - girder_client
 
   - name: girder | install girder web client
     command: girder-install -f web
@@ -114,6 +115,14 @@
   - name: romanesco | checkout romanesco
     git: repo=https://github.com/Kitware/romanesco.git dest=/vagrant/romanesco update=yes
 
+  - name: romanesco | create worker local config file
+    copy: src=worker.local.cfg dest=/vagrant/romanesco/romanesco/worker.local.cfg owner=root group=staff mode=0644
+    sudo: yes
+
+  - name: romanesco | install all required pip packages
+    command: python /vagrant/romanesco/scripts/install_requirements.py
+    sudo: yes
+
   - name: romanesco | install girder plugin
     command: girder-install -f plugin -s /vagrant/romanesco
     sudo: yes
@@ -125,6 +134,10 @@
     sudo: yes
     notify:
       - restart romanesco
+
+  - name: restart romanesco service
+    shell: stop romanesco; start romanesco
+    sudo: yes
 
   - name: ArborWebApps | checkout ArborWebApps
     git: repo=https://github.com/arborworkflows/ArborWebApps.git dest=/vagrant/ArborWebApps update=yes
@@ -162,19 +175,29 @@
   - name: girder | wait for girder initialization
     wait_for: port=9000 delay=2
 
-  - name: girder | setup admin user
+  - name: girder | setup admin user and turn on romanesco plugin
     command: python girder-setup.py chdir=/vagrant/devops/ansible
     notify:
       - restart girder
 
-  - name: girder | install easy mode analyses
+  - name: girder | restart
+    shell: stop girder; start girder
+    sudo: yes
+
+  - name: girder | wait for girder initialization
+    wait_for: port=9000 delay=2
+
+  - name: girder | install easy mode analyses and disable auth requirement for romanesco
     command: python easymode-setup.py /vagrant/ArborWebApps chdir=/vagrant/devops/ansible
 
   - name: tangelo-hub | create ancestral-state symbolic link
-    command: ln -s /vagrant/ArborWebApps/ancestral-state chdir=/vagrant/app
+    file: src=/vagrant/ArborWebApps/ancestral-state dest=/vagrant/app/ancestral-state state=link
 
   - name: tangelo-hub | create phylogenetic-signal symbolic link
-    command: ln -s /vagrant/ArborWebApps/phylogenetic-signal chdir=/vagrant/app
+    file: src=/vagrant/ArborWebApps/phylogenetic-signal dest=/vagrant/app/phylogenetic-signal state=link
+
+  - name: tangelo-hub | create PGLS symbolic link
+    file: src=/vagrant/ArborWebApps/PGLS dest=/vagrant/app/PGLS state=link
 
   - name: apache | enable http proxy
     command: a2enmod proxy_http
@@ -236,6 +259,8 @@
       - diversitree
       - phytools
       - dplyr
+      - OUwie
+      - phylolm
     environment:
       DISPLAY: :7
     when: arbor
